@@ -9,6 +9,7 @@
 [![Hugging Face Model](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue)](https://huggingface.co/bralani01/nopo4d)
 
 </div>
+
 ![NoPo4D Teaser](assets/images/teaser.png)
 
 This work presents **NoPo4D**, the first feed-forward system that jointly addresses dynamic content, multi-view input, and unknown camera poses in a single pass. In pursuit of pose-free 4D reconstruction, NoPo4D yields two key insights:

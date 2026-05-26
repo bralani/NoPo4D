@@ -1,0 +1,24 @@
+# @package _global_
+
+defaults:
+- /dataset@_group_.exo4d: exo4d
+- override /loss: [mse, lpips, ssim, depth_consis, optical_flow, opacity, distill]
+
+wandb:
+  name: exo4d-all-cam
+  tags: [exo4d, 448x448]
+
+dataset:
+  exo4d:
+    view_sampler:
+      min_cameras: 1
+      max_cameras: 4
+      min_context_views: 2
+      max_context_views: 4
+      min_target_views: 2
+      max_target_views: 4
+      max_img_per_gpu: 4
+
+checkpointing:
+  load: /path/to/exo4d_single_cam/checkpoint.ckpt
+  load_only_weights: true

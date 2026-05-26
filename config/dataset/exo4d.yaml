@@ -1,0 +1,21 @@
+defaults:
+  - base_dataset
+  - view_sampler: bounded_video
+
+name: exo4d
+roots: [/iopsstor/scratch/cscs/mbalice/egoexo/]
+annotations_root: /capstor/store/cscs/swissai/a144/datasets/egoexo4d
+
+input_image_shape: [448, 448]
+original_image_shape: [796, 448]
+cameras_are_circular: false
+
+baseline_min: 1e-3
+baseline_max: 1e2
+max_fov: 120.0
+skip_bad_shape: false
+
+rescale_to_1cube: true
+make_baseline_1: false
+intr_augment: true
+normalize_by_pts3d: false

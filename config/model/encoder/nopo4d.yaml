@@ -1,0 +1,33 @@
+name: nopo4d
+
+backbone:
+  name: da3
+  backbone_checkpoint_name: da3-large-1.1
+  intermediate_layer_idx: [11, 15, 19, 23]
+  backbone_temporal_encoding: true
+
+gaussian_adapter:
+  is_4d: true
+  gaussian_scale_min: 0.5
+  gaussian_scale_max: 15.0
+  sh_degree: 1
+  use_opacity_sh: true
+  # motion bounds
+  min_dxyz: -0.0
+  max_dxyz: 0.0
+  dxyz_bias: 0.0
+
+gaussian_head:
+  dim_in: 2048
+  patch_size: 14
+  feature_dim: 256
+  use_voxelization: true
+  voxel_size: 0.002
+
+motion_encoder:
+  num_heads: 16
+  num_layers: 1
+  mlp_ratio: 4.0
+  use_checkpoint: true
+  velocity_space: camera
+  skip_motion_branch: false

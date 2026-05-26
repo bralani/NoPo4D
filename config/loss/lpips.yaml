@@ -1,0 +1,4 @@
+lpips:
+  weight: 0.5
+  apply_after_step: 0
+  batch_size: 40

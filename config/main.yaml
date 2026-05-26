@@ -1,0 +1,73 @@
+defaults:
+  - model/encoder: nopo4d
+  - model/decoder: decoder_4dgs
+  - loss: [mse]
+
+base_path: ${oc.env:SCRATCH}
+
+wandb:
+  project: nopo4d
+  entity: scene-representation-group
+  name: debug
+  mode: online
+
+seed: 111123
+
+data_loader:
+  train:
+    num_workers: 16
+    persistent_workers: true
+    batch_size: 1
+    seed: 1234
+  val:
+    num_workers: 1
+    persistent_workers: true
+    batch_size: 1
+    seed: 3456
+  test:
+    num_workers: 4
+    persistent_workers: false
+    batch_size: 1
+    seed: 2345
+
+optimizer:
+  lr: 5e-6
+  warm_up_steps: 1000
+  param_lr_rules:
+    - [".*gaussian_param_head.*", 1e-4]
+    - [".*velocity_head.*", 1e-4]
+    - [".*motion_encoder.*", 5e-5]
+
+trainer:
+  max_steps: 30000
+  val_check_interval: 500
+  gradient_clip_val: 0.5
+  num_nodes: 1
+  accumulate_grad_batches: 1
+  precision: bf16-mixed
+
+checkpointing:
+  load: null
+  load_only_weights: true
+  every_n_train_steps: 200
+  save_top_k: 15
+  save_weights_only: false
+
+train:
+  output_path: ${base_path}/nopo4d/output/exp_${wandb.name}/${now:%Y-%m-%d_%H-%M-%S}
+  print_log_every_n_steps: 10
+  warmup_steps_regularization: 1000
+  pose_free: true
+  freeze_module_regex:
+    - '.*pretrained\.pos_embed$'
+    - '.*pretrained\.patch_embed.*'
+    - '.*pretrained\.norm.*'
+    - ".*camera_enc.*"
+    - '.*pretrained\.blocks\.[0-7]\.'
+    - '.*cls_token.*'
+    - ".*depth_head.*"
+    - ".*camera_head.*"
+
+hydra:
+  run:
+    dir: ${base_path}/nopo4d/output/exp_${wandb.name}/${now:%Y-%m-%d_%H-%M-%S}

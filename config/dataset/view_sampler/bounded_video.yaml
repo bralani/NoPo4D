@@ -1,0 +1,17 @@
+name: bounded_video
+
+min_context_views: 2
+max_context_views: 4
+min_target_views: 2
+max_target_views: 4
+max_img_per_gpu: 4
+
+min_cameras: 1        # Minimum number of cameras to sample per batch
+max_cameras: 4        # Base number of cameras (max_context/target_views apply at this count)
+
+gap: 8                 # Maximum gap between two consecutive sampled frames
+min_gap: 4             # minimum gap between consecutive frames
+initial_gap: 4         # Gap to use during initial warm-up steps
+warm_up_steps: 0
+sparse: True
+exclude_cameras: [2]

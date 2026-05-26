@@ -1,0 +1,40 @@
+optical_flow:
+  weight: 0.02
+  direct_du_dv_supervision: true  # If true, use motion-encoder du/dv predictions instead of rendered Gaussian flow
+  supervise_motion_prob: false  # If true, supervise motion probability with BCE targets from GT flow magnitude
+  weight_motion_prob: 1.0  # Weight for motion probability BCE loss
+  flow_threshold: 2.0  # Ignore flow vectors smaller than this (pixels)
+  warmup_steps: 0  # Steps before enabling this loss
+  max_flow: 150.0  # Clamp extreme flow magnitudes
+
+  # Loss type: "cosine_magnitude" or "smooth_l1"
+  # cosine_magnitude uses log-ratio for magnitude (anti-collapse) + cosine for direction
+  loss_type: smooth_l1
+  smooth_l1_beta: 5.0    # Beta for smooth_l1 (only used when loss_type=smooth_l1)
+
+  # Cosine + Magnitude loss weights (only used when loss_type=cosine_magnitude)
+  weight_cosine: 1.0     # Weight for direction (cosine similarity) loss
+  weight_magnitude: 0.1  # Weight for magnitude loss
+
+  # Motion weighting
+  motion_weight: 1000.0  # Extra weight multiplier for pixels with flow > flow_threshold
+  only_moving_pixels: true  # If true, compute loss only on pixels with flow > flow_threshold (mean over valid pixels only)
+
+  # Smoothness
+  weight_smoothness: 50.0  # Weight for smoothness loss
+
+  # Occlusion masking
+  occlusion_aware: false          # Forward-backward consistency occlusion masking
+  occlusion_threshold: 30.0        # Cycle error threshold in pixels
+
+  # Sparse velocity regularization
+  weight_sparse_velocities: 0.1  # L1 mean of fwd+bwd velocity norms (encourages sparsity)
+
+  # Pair subsampling
+  max_pairs: 8  # Max individual pairs per step (0 = all); 4 = 2 fwd/bwd groups
+  min_moving_pixel_ratio: 0.0  # Skip pair if < this fraction of pixels have flow > flow_threshold (0=disabled)
+
+  # Temporal Gaussian filtering
+  filter_gaussians_at_t0: false  # If true, keep only Gaussians where |t - t0| < t0_filter_threshold
+  t0_filter_threshold: 0.0001    # Max allowed |t - t0| for a Gaussian to be kept
+

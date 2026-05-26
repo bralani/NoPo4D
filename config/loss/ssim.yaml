@@ -1,0 +1,4 @@
+ssim:
+  weight: 0.05
+  mask: false
+  alpha: false

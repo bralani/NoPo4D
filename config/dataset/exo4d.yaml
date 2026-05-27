@@ -3,8 +3,8 @@ defaults:
   - view_sampler: bounded_video
 
 name: exo4d
-roots: [/iopsstor/scratch/cscs/mbalice/egoexo/]
-annotations_root: /capstor/store/cscs/swissai/a144/datasets/egoexo4d
+roots: [/your/dataset_processed/path] # preprocessed dataset path
+annotations_root: /your/dataset/path  # original dataset path
 
 input_image_shape: [448, 448]
 original_image_shape: [796, 448]

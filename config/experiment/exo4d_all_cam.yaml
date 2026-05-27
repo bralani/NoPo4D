@@ -14,11 +14,11 @@ dataset:
       min_cameras: 1
       max_cameras: 4
       min_context_views: 2
-      max_context_views: 4
+      max_context_views: 3
       min_target_views: 2
-      max_target_views: 4
-      max_img_per_gpu: 4
+      max_target_views: 3
+      max_img_per_gpu: 3
 
 checkpointing:
-  load: /path/to/exo4d_single_cam/checkpoint.ckpt
+  load: /path/to/exo4d_single_cam/checkpoint.ckpt # change here to your single cam checkpoint
   load_only_weights: true

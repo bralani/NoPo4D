@@ -50,6 +50,14 @@ Optionally, install `torch-scatter` to enable Gaussian voxelization (see [pytorc
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.0+${CUDA}.html
 ```
 
+### Training dependencies (optional)
+
+To install the additional dependencies required for training:
+
+```bash
+pip install -e ".[training]"
+```
+
 ## Quick Start
 
 ### Command-line inference
@@ -102,6 +110,46 @@ render_output = model.render(
 )
 # render_output.color: (B, V, 3, H, W)
 # render_output.depth: (B, V, H, W)
+```
+
+## Dataset
+
+To download and preprocess the EgoExo4D dataset, see [`scripts/dataset/README.md`](scripts/dataset/README.md).
+
+## Training
+
+Make sure the [training dependencies](#training-dependencies-optional) are installed.
+
+Training on Exo4D follows two stages, selected via the `+experiment` flag:
+
+| Stage | Config | W&B run name | Description |
+|-------|--------|--------------|-------------|
+| Step 1 | `exo4d_single_cam` | `exo4d-single-cam` | Single-camera warmup — trains with one camera at a time |
+| Step 2 | `exo4d_all_cam` | `exo4d-all-cam` | Full multi-camera training across all cameras |
+
+### Single node
+
+```bash
+# Step 1 — single camera
+python src/train.py +experiment=exo4d_single_cam
+
+# Step 2 — all cameras
+python src/train.py +experiment=exo4d_all_cam
+```
+
+### Multi-node
+
+Set `MASTER_ADDR`, `MASTER_PORT`, `NUM_NODES`, and `GPU_NUM` according to your cluster environment, then run:
+
+```bash
+torchrun \
+  --nnodes=$NUM_NODES \
+  --nproc_per_node=$GPU_NUM \
+  --node_rank=$SLURM_NODEID \
+  --rdzv_id=$SLURM_JOB_ID \
+  --rdzv_backend=c10d \
+  --rdzv-endpoint=$MASTER_ADDR:$MASTER_PORT \
+  -m src.train +experiment=exo4d_all_cam trainer.num_nodes=$NUM_NODES
 ```
 
 ## Citation

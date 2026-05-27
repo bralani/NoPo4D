@@ -217,6 +217,72 @@ def batchify_unproject_depth_map_to_point_map(
     return world_coords.view(B, V, H, W, 3)
 
 
+def get_normal_map(
+    depth: Float[Tensor, "batch height width"],
+    intrinsics: Float[Tensor, "batch 3 3"],
+) -> Float[Tensor, "batch height width 3"]:
+    """Compute surface normals from a depth map and pixel-space intrinsics.
+
+    Unprojects depth to a 3-D point cloud, then estimates normals via
+    finite-difference cross products on neighbouring points.
+
+    Returns unit normals in camera space, shape (B, H, W, 3).
+    """
+    b, h, w = depth.shape
+    device = depth.device
+    dtype = depth.dtype
+
+    ys = torch.arange(h, device=device, dtype=dtype)
+    xs = torch.arange(w, device=device, dtype=dtype)
+    grid_y, grid_x = torch.meshgrid(ys, xs, indexing="ij")
+
+    fx = intrinsics[:, 0, 0]
+    fy = intrinsics[:, 1, 1]
+    cx = intrinsics[:, 0, 2]
+    cy = intrinsics[:, 1, 2]
+
+    x = (grid_x.unsqueeze(0) / w - cx[:, None, None]) / fx[:, None, None] * depth
+    y = (grid_y.unsqueeze(0) / h - cy[:, None, None]) / fy[:, None, None] * depth
+    pts = torch.stack([x, y, depth], dim=-1)  # (B, H, W, 3)
+
+    dxyz_dx = pts[:, :, 2:, :] - pts[:, :, :-2, :]   # (B, H, W-2, 3)
+    dxyz_dy = pts[:, 2:, :, :] - pts[:, :-2, :, :]   # (B, H-2, W, 3)
+
+    normals_inner = torch.linalg.cross(dxyz_dx[:, 1:-1], dxyz_dy[:, :, 1:-1])
+    normals_inner = F.normalize(normals_inner, dim=-1)
+
+    normals = torch.zeros(b, h, w, 3, device=device, dtype=dtype)
+    normals[:, 1:-1, 1:-1, :] = normals_inner
+    return normals
+
+
+def unproject_depth_map_to_point_map(
+    depth_map: torch.Tensor,
+    extrinsics_cam: torch.Tensor,
+    intrinsics_cam: torch.Tensor,
+) -> torch.Tensor:
+    """Unproject depth maps to world-space 3D points.
+
+    Args:
+        depth_map:      (S, H, W) or (S, H, W, 1)
+        extrinsics_cam: (S, 3, 4) w2c matrices
+        intrinsics_cam: (S, 3, 3)
+
+    Returns:
+        (S, H, W, 3) world-space 3D points
+    """
+    return batchify_unproject_depth_map_to_point_map(
+        depth_map.unsqueeze(0),
+        extrinsics_cam.unsqueeze(0),
+        intrinsics_cam.unsqueeze(0),
+    ).squeeze(0)
+
+
+def closed_form_inverse_se3(se3: torch.Tensor) -> torch.Tensor:
+    """Batch-invert a (N, 3, 4) or (N, 4, 4) SE3 matrix via R^T."""
+    return _closed_form_inverse_se3(se3)
+
+
 def _closed_form_inverse_se3(se3: torch.Tensor) -> torch.Tensor:
     """Batch-invert a (N, 3, 4) or (N, 4, 4) SE3 matrix via R^T."""
     R = se3[:, :3, :3]
@@ -226,6 +292,51 @@ def _closed_form_inverse_se3(se3: torch.Tensor) -> torch.Tensor:
     inv[:, :3, :3] = R_t
     inv[:, :3, 3:] = -torch.bmm(R_t, T)
     return inv
+
+
+def homogenize_points(
+    points: Float[Tensor, "*batch dim"],
+) -> Float[Tensor, "*batch dim+1"]:
+    return torch.cat([points, torch.ones_like(points[..., :1])], dim=-1)
+
+
+def transform_rigid(
+    homogeneous_coordinates: Float[Tensor, "*#batch dim"],
+    transformation: Float[Tensor, "*#batch dim dim"],
+) -> Float[Tensor, "*batch dim"]:
+    from einops import einsum as _einsum
+    return _einsum(transformation, homogeneous_coordinates, "... i j, ... j -> ... i")
+
+
+def project_camera_space(
+    points: Float[Tensor, "*#batch dim"],
+    intrinsics: Float[Tensor, "*#batch dim dim"],
+    epsilon: float = torch.finfo(torch.float32).eps,
+    infinity: float = 1e8,
+) -> Float[Tensor, "*batch dim-1"]:
+    from einops import einsum as _einsum
+    points = points / (points[..., -1:] + epsilon)
+    points = points.nan_to_num(posinf=infinity, neginf=-infinity)
+    points = _einsum(intrinsics, points, "... i j, ... j -> ... i")
+    return points[..., :-1]
+
+
+def get_fov(intrinsics: Float[Tensor, "batch 3 3"]) -> Float[Tensor, "batch 2"]:
+    from einops import einsum as _einsum
+    intrinsics_inv = intrinsics.inverse()
+
+    def process_vector(vector):
+        vector = torch.tensor(vector, dtype=torch.float32, device=intrinsics.device)
+        vector = _einsum(intrinsics_inv, vector, "b i j, j -> b i")
+        return vector / vector.norm(dim=-1, keepdim=True)
+
+    left   = process_vector([0, 0.5, 1])
+    right  = process_vector([1, 0.5, 1])
+    top    = process_vector([0.5, 0, 1])
+    bottom = process_vector([0.5, 1, 1])
+    fov_x = (left * right).sum(dim=-1).acos()
+    fov_y = (top * bottom).sum(dim=-1).acos()
+    return torch.stack((fov_x, fov_y), dim=-1)
 
 
 def normalize_intrinsics(
@@ -241,3 +352,14 @@ def normalize_intrinsics(
         ],
         dim=-2,
     )
+
+
+def denormalize_intrinsics(
+    intr_norm: Float[Tensor, "... 3 3"], width: int, height: int
+) -> Float[Tensor, "... 3 3"]:
+    intr = intr_norm.clone()
+    intr[..., 0, 0] = intr_norm[..., 0, 0] * width
+    intr[..., 1, 1] = intr_norm[..., 1, 1] * height
+    intr[..., 0, 2] = intr_norm[..., 0, 2] * width
+    intr[..., 1, 2] = intr_norm[..., 1, 2] * height
+    return intr

@@ -1,6 +1,4 @@
 depth_consis:
   weight: 0.1
-  sigma_image: null
-  use_second_derivative: false
   init_weight: 0.1
   decay_steps: 4000

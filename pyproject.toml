@@ -20,6 +20,26 @@ dependencies = [
     "gsplat",
 ]
 
+[project.optional-dependencies]
+training = [
+    "lightning>=2.0",
+    "wandb",
+    "hydra-core>=1.3",
+    "omegaconf",
+    "dacite",
+    "lpips",
+    "tabulate",
+    "evo",
+    "h5py",
+    "Pillow",
+    "opencv-python",
+    "tqdm",
+    "torchaudio",
+    "matplotlib",
+    "scipy",
+    "tensorboard",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 

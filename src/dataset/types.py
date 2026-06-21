@@ -1,94 +1,64 @@
-from typing import Callable, Literal
-from typing_extensions import TypedDict, NotRequired, TypeAlias
+"""Dataset example types and TypedDict schemas."""
 
-from jaxtyping import Bool, Float, Int64
+from typing import Literal
+from typing_extensions import TypedDict
+
+from jaxtyping import Float
 from torch import Tensor
 
-Stage = Literal["train", "val", "test"]
-
-# Named single-camera tensor types
-Intrinsics: TypeAlias = Float[Tensor, "3 3"]
-Extrinsics: TypeAlias = Float[Tensor, "4 4"]
-
-
-# The following types mainly exist to make type-hinted keys show up in VS Code. Some
-# dimensions are annotated as "_" because either:
-# 1. They're expected to change as part of a function call (e.g., resizing the dataset).
-# 2. They're expected to vary within the same function call (e.g., the number of views,
-#    which differs between context and target BatchedViews).
+Stage = Literal["train", "val"]
 
 
 class BatchedViews(TypedDict):
-    extrinsics: Float[Tensor, "batch _ 4 4"]  # batch view 4 4
-    intrinsics: Float[Tensor, "batch _ 3 3"]  # batch view 3 3
-    image: Float[Tensor, "batch _ _ _ _"]  # batch view channel height width
-    depth: NotRequired[Float[Tensor, "batch _ _ _"]]  # batch view height width
-    near: Float[Tensor, "batch _"]  # batch view
-    far: Float[Tensor, "batch _"]  # batch view
-    index: Int64[Tensor, "batch _"]  # batch view
-    overlap: NotRequired[Float[Tensor, "batch _"]]  # batch view
-    pts3d: NotRequired[Float[Tensor, "batch _ _ _ 3"]]  # batch view height width 3
-    valid_mask: NotRequired[Bool[Tensor, "batch _ _ _"]]  # batch view height width
-    timestamp: NotRequired[Float[Tensor, "batch _"]]  # batch view
-    track: NotRequired[Float[Tensor, "batch _ _ 2"]]  # batch view num_tracks 2
-    visibility: NotRequired[Bool[Tensor, "batch _ _"]]  # batch view num_tracks
+    extrinsics: Float[Tensor, "batch view 4 4"]
+    intrinsics: Float[Tensor, "batch view 3 3"]
+    image:      Float[Tensor, "batch view channel height width"]
+    timestamp:  Float[Tensor, "batch view"] | None
 
 
 class BatchedExample(TypedDict):
-    target: BatchedViews
-    context: BatchedViews
-    scene: list[str]
+    target:      BatchedViews
+    context:     BatchedViews
+    scene:       list[str]
     num_cameras: list[int]
 
 
 class UnbatchedViews(TypedDict):
-    extrinsics: Float[Tensor, "_ 4 4"]
-    intrinsics: Float[Tensor, "_ 3 3"]
-    image: Float[Tensor, "_ 3 height width"]
-    depth: NotRequired[Float[Tensor, "_ height width"]]
-    near: Float[Tensor, " _"]
-    far: Float[Tensor, " _"]
-    index: Int64[Tensor, " _"]
-    pts3d: NotRequired[Float[Tensor, "_ height width 3"]]
-    valid_mask: NotRequired[Bool[Tensor, "_ height width"]]
-    timestamp: NotRequired[Float[Tensor, " _"]]
-    track: NotRequired[Float[Tensor, "_ num_tracks 2"]]
-    visibility: NotRequired[Bool[Tensor, "_ num_tracks"]]
+    extrinsics: Float[Tensor, "view 4 4"]
+    intrinsics: Float[Tensor, "view 3 3"]
+    image:      Float[Tensor, "view 3 height width"]
+    timestamp:  Float[Tensor, " view"] | None
 
 
 class UnbatchedExample(TypedDict):
-    target: UnbatchedViews
-    context: UnbatchedViews
-    scene: str
+    target:      UnbatchedViews
+    context:     UnbatchedViews
+    scene:       str
     num_cameras: int
 
 
-# Per-camera calibration stored once per camera (not duplicated per frame).
 class CameraCalibration(TypedDict):
-    intrinsics: Intrinsics
-    extrinsics: NotRequired[Extrinsics]
+    intrinsics: Float[Tensor, "3 3"]
+    extrinsics: Float[Tensor, "4 4"] | None  # None for datasets without pose data
 
 
-# Per-frame metadata structure returned by scene index loaders.
 class SceneFrame(TypedDict):
-    file_path: NotRequired[str]      # PNG path
-    h5_path: NotRequired[str]        # HDF5 file path
-    num_frame: NotRequired[int]
-    camera_id: str                   # Required: identifies which camera this frame is from
-    extrinsics: NotRequired[Extrinsics]  # Per-frame only for moving cameras (Ego4D)
+    scene_path: str | None                    # path to the source file (HDF5, PNG dir, etc.)
+    num_frame:  int | None                    # temporal index within the scene
+    camera_id:  str                           # which camera this frame belongs to
+    extrinsics: Float[Tensor, "4 4"] | None   # per-frame pose, for datasets with moving cameras
+
+
+SceneCameras = dict[str, CameraCalibration]  # {cam_id -> calibration} for all cameras in a scene
+CameraFrames = dict[str, list[SceneFrame]]   # {cam_id -> frames}      for all cameras in a scene
 
 
 class FrameData(TypedDict):
-    """Return type of BaseDataset.load_frames()."""
-    images: Float[Tensor, "N 3 H W"]
+    """Stacked output of BaseDataset.load_frames(); N matches the input frame list length."""
+    images:     Float[Tensor, "N 3 H W"]
     extrinsics: Float[Tensor, "N 4 4"]
     intrinsics: Float[Tensor, "N 3 3"]
-    tracks: NotRequired[Float[Tensor, "N num_tracks 2"]]
-    visibility: NotRequired[Bool[Tensor, "N num_tracks"]]
 
-
-# A data shim modifies the example after it's been returned from the data loader.
-DataShim = Callable[[BatchedExample], BatchedExample]
 
 AnyExample = BatchedExample | UnbatchedExample
 AnyViews = BatchedViews | UnbatchedViews

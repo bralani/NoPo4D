@@ -256,32 +256,6 @@ def get_normal_map(
     return normals
 
 
-def unproject_depth_map_to_point_map(
-    depth_map: torch.Tensor,
-    extrinsics_cam: torch.Tensor,
-    intrinsics_cam: torch.Tensor,
-) -> torch.Tensor:
-    """Unproject depth maps to world-space 3D points.
-
-    Args:
-        depth_map:      (S, H, W) or (S, H, W, 1)
-        extrinsics_cam: (S, 3, 4) w2c matrices
-        intrinsics_cam: (S, 3, 3)
-
-    Returns:
-        (S, H, W, 3) world-space 3D points
-    """
-    return batchify_unproject_depth_map_to_point_map(
-        depth_map.unsqueeze(0),
-        extrinsics_cam.unsqueeze(0),
-        intrinsics_cam.unsqueeze(0),
-    ).squeeze(0)
-
-
-def closed_form_inverse_se3(se3: torch.Tensor) -> torch.Tensor:
-    """Batch-invert a (N, 3, 4) or (N, 4, 4) SE3 matrix via R^T."""
-    return _closed_form_inverse_se3(se3)
-
 
 def _closed_form_inverse_se3(se3: torch.Tensor) -> torch.Tensor:
     """Batch-invert a (N, 3, 4) or (N, 4, 4) SE3 matrix via R^T."""
@@ -363,3 +337,13 @@ def denormalize_intrinsics(
     intr[..., 0, 2] = intr_norm[..., 0, 2] * width
     intr[..., 1, 2] = intr_norm[..., 1, 2] * height
     return intr
+
+
+def convert_intrinsics(
+    fx: float, fy: float, cx: float, cy: float, w: float, h: float
+) -> Float[Tensor, "3 3"]:
+    """Build a normalized 3x3 intrinsic matrix from focal lengths and principal point."""
+    K = torch.eye(3, dtype=torch.float32)
+    K[0, 0], K[1, 1] = fx / w, fy / h
+    K[0, 2], K[1, 2] = cx / w, cy / h
+    return K

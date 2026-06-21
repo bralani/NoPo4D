@@ -34,7 +34,6 @@ class TrainingMixin(ModelWrapperBase):
 
     def training_step(self, batch, batch_idx):
         """Run one training iteration: distillation, encoder, decoder, loss, logging."""
-        batch = self._prepare_batch(batch)
         num_cameras = int(batch["num_cameras"][0])
         context: BatchedViews = batch["context"]
         target: BatchedViews  = batch["target"]

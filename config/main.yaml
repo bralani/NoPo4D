@@ -24,11 +24,6 @@ data_loader:
     persistent_workers: true
     batch_size: 1
     seed: 3456
-  test:
-    num_workers: 4
-    persistent_workers: false
-    batch_size: 1
-    seed: 2345
 
 optimizer:
   lr: 5e-6

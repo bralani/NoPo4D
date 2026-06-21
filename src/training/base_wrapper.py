@@ -1,11 +1,8 @@
 """Shared base class for TrainingMixin and ValidationMixin."""
 
-from typing import Callable
-
 from lightning.pytorch import Trainer
 from lightning.pytorch.loggers.wandb import WandbLogger
 
-from src.dataset.data_module import combine_batches
 from src.dataset.types import BatchedExample
 from src.utils.image import prep_image
 from src.model.decoder.types import DecoderOutput
@@ -26,17 +23,11 @@ class ModelWrapperBase:
     current_epoch: int
     global_step: int
     global_rank: int
-    data_shim: Callable[[BatchedExample], BatchedExample]
     model: NoPo4D
     train_cfg: TrainCfg
     metrics_logger: MetricsLogger
     logger: WandbLogger | None
     distill_manager: DistillationManager | None
-
-    def _prepare_batch(self, batch) -> BatchedExample:
-        if isinstance(batch, list):
-            batch = combine_batches(batch)
-        return self.data_shim(batch)
 
     def _log_comparison_and_video(
         self,

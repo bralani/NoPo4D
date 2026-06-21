@@ -19,8 +19,6 @@ class ValidationMixin(ModelWrapperBase):
 
     @rank_zero_only
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        batch: BatchedExample = self._prepare_batch(batch)
-
         b, v, _, h, w = batch["target"]["image"].shape
         assert b == 1, "validation expects batch size 1"
         num_cameras = int(batch.get("num_cameras", [1])[0])
@@ -29,11 +27,6 @@ class ValidationMixin(ModelWrapperBase):
         target_extrinsics = batch["target"].get("extrinsics")
         target_intrinsics = batch["target"].get("intrinsics")
 
-        print(
-            f"validation step {self.global_step}; "
-            f"scene = {batch['scene']}; "
-            f"context = {batch['target']['index'].tolist()}"
-        )
 
         # Run teacher model to get pseudo-GT depth for visualization.
         distill_infos = None

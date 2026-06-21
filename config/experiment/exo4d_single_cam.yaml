@@ -17,8 +17,6 @@ dataset:
       max_context_views: 12
       min_target_views: 2
       max_target_views: 12
-      max_img_per_gpu: 12
-
 checkpointing:
   load: null
   load_only_weights: false

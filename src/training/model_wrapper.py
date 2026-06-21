@@ -8,7 +8,6 @@ from lightning.pytorch.loggers.wandb import WandbLogger
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch import nn
 
-from src.dataset.data_module import get_data_shim
 from src.utils.step_tracker import StepTracker
 from src.model.nopo4d import NoPo4D
 from src.training.config import TrainCfg
@@ -54,8 +53,6 @@ class ModelWrapper(TrainingMixin, ValidationMixin, LightningModule):
         self.train_cfg = train_cfg
         self.step_tracker = step_tracker
         self.model = model
-        self.data_shim = get_data_shim(self.model.encoder)
-
         # Freeze encoder params as configured
         _apply_selective_freezing(self.model.encoder, self.train_cfg.freeze_module_regex)
 

@@ -45,17 +45,6 @@ def apply_sim3_to_c2w(
     return result
 
 
-def camera_normalization(pivotal_pose: torch.Tensor, poses: torch.Tensor) -> torch.Tensor:
-    """Normalize all poses relative to a pivotal (reference) camera frame."""
-    canonical = torch.eye(4, dtype=torch.float32, device=pivotal_pose.device).unsqueeze(0)
-    norm_matrix = torch.bmm(canonical, torch.inverse(pivotal_pose))
-    return torch.bmm(norm_matrix.expand(poses.shape[0], -1, -1), poses)
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
 
 def _affine_inverse_np(A: np.ndarray) -> np.ndarray:
     R = A[..., :3, :3]

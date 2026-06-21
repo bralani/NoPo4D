@@ -1,82 +1,37 @@
+"""LightningDataModule wiring together datasets, samplers, and dataloaders."""
+
+import itertools
 import random
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import torch
-from torch.utils.data import default_collate
+from torch import Generator
+from torch.utils.data import DataLoader, DistributedSampler, BatchSampler
 from lightning.pytorch import LightningDataModule
-from torch import Generator, nn
-from torch.utils.data import DataLoader
-from typing import cast
-from src.cfg import get_cfg
-
 
 from ..utils.step_tracker import StepTracker
 from ..utils.distributed import get_world_size, get_rank
 from . import DatasetCfgWrapper, get_dataset
-from .types import DataShim, BatchedExample
-from .dataset import DatasetShim
-from .data_sampler import HomogeneousBatchSampler
-
-def custom_collate_fn(batch):
-    if len(batch) == 1:
-        return batch[0]
-    return default_collate(batch)
+from .types import BatchedExample, UnbatchedExample
 
 
-def get_data_shim(encoder: nn.Module) -> DataShim:
-    """Get functions that modify the batch. It's sometimes necessary to modify batches
-    outside the data loader because GPU computations are required to modify the batch or
-    because the modification depends on something outside the data loader.
-    """
-
-    shims: list[DataShim] = []
-    if hasattr(encoder, "get_data_shim"):
-        shims.append(encoder.get_data_shim())
-
-    def combined_shim(batch):
-        for shim in shims:
-            batch = shim(batch)
-        return batch
-
-    return combined_shim
+def worker_init_fn(_: int) -> None:
+    # Each worker gets a unique seed to avoid identical augmentations across workers.
+    seed = int(torch.utils.data.get_worker_info().seed) % (2**32 - 1)
+    random.seed(seed)
+    np.random.seed(seed)
 
 
-def combine_batches(batch_list: list[dict]) -> BatchedExample:
-    """Combine a list of per-dataloader batches into a single batch.
-
-    Args:
-        batch_list: list of batch dicts from different dataloaders.
-
-    Returns:
-        A single combined batch conforming to BatchedExample.
-    """
-    batch_combined = None
-    for batch_per_dl in batch_list:
-        if batch_combined is None:
-            # start from a shallow copy to avoid aliasing
-            batch_combined = {k: v for k, v in batch_per_dl.items()}
+def collate_fn(batch: list[UnbatchedExample]) -> BatchedExample:
+    result = {}
+    for k in batch[0]:
+        if isinstance(batch[0][k], dict):
+            result[k] = {kk: torch.stack([b[k][kk] for b in batch]) for kk in batch[0][k]}
         else:
-            for k in batch_combined.keys():
-                if isinstance(batch_combined[k], list):
-                    batch_combined[k] += batch_per_dl[k]
-                elif isinstance(batch_combined[k], dict):
-                    for kk in batch_combined[k].keys():
-                        batch_combined[k][kk] = torch.cat([batch_combined[k][kk], batch_per_dl[k][kk]], dim=0)
-                else:
-                    raise NotImplementedError(f"combine_batches does not support key='{k}' with type {type(batch_combined[k])}")
-
-    assert batch_combined is not None, "Batch must include at least one sample"
-    if batch_combined["context"]["image"].ndim == 4:
-        for k in batch_combined.keys():
-            if isinstance(batch_combined[k], dict):
-                for kk in batch_combined[k].keys():
-                    batch_combined[k][kk] = batch_combined[k][kk].unsqueeze(0)
-            elif not isinstance(batch_combined[k], list):
-                batch_combined[k] = [batch_combined[k]]
-
-        
-    return cast(BatchedExample, batch_combined)
+            result[k] = [b[k] for b in batch]
+    return cast(BatchedExample, result)
 
 
 @dataclass
@@ -84,151 +39,152 @@ class DataLoaderStageCfg:
     batch_size: int
     num_workers: int
     persistent_workers: bool
-    seed: int | None
+    seed: int | None  # None: non-deterministic
 
 
 @dataclass
 class DataLoaderCfg:
     train: DataLoaderStageCfg
-    test: DataLoaderStageCfg
     val: DataLoaderStageCfg
 
-def worker_init_fn(worker_id: int) -> None:
-    random.seed(int(torch.utils.data.get_worker_info().seed) % (2**32 - 1))
-    np.random.seed(int(torch.utils.data.get_worker_info().seed) % (2**32 - 1))
+
+class DataSampler(BatchSampler):
+    """
+    Batch sampler that synchronizes sampling across distributed workers.
+
+    Randomly draws the number of cameras, context views, and target views using
+    a shared seeded RNG. Yields batches of index tuples:
+    (dataset_index, num_context, num_target, num_cameras).
+    """
+
+    SEED_OFFSET_MULTIPLIER = 100
+
+    def __init__(self, dataset, batch_size: int, world_size: int = 1, rank: int = 0, seed: int = 42, sampler=None):
+        self.batch_size = batch_size
+        self.drop_last = True  # read by DataLoader when batch_sampler is provided
+        self.rng = random.Random()
+        self.view_sampler = dataset.view_sampler
+
+        vs_cfg = dataset.cfg.view_sampler
+        self.min_cam = vs_cfg.min_cameras
+        self.max_cam = vs_cfg.max_cameras
+        self.min_context = vs_cfg.min_context_views
+        self.max_context = vs_cfg.max_context_views
+        self.min_target = vs_cfg.min_target_views
+        self.max_target = vs_cfg.max_target_views
+
+        self.excluded_cameras = set(getattr(vs_cfg, "exclude_cameras", []) or [])
+
+        self._dist_sampler = sampler if sampler is not None else DistributedSampler(
+            dataset, num_replicas=world_size, rank=rank, shuffle=True, seed=seed, drop_last=False
+        )
+        self.set_epoch(seed)
+
+    def set_epoch(self, epoch: int) -> None:
+        """Tie the RNG seed to the epoch so all distributed workers agree."""
+        if hasattr(self._dist_sampler, "set_epoch"):
+            self._dist_sampler.set_epoch(epoch)
+        self.epoch = epoch
+        self.rng.seed(epoch * self.SEED_OFFSET_MULTIPLIER)
+
+    @property
+    def current_max_cameras(self) -> int:
+        if hasattr(self.view_sampler, "get_current_max_cameras"):
+            return self.view_sampler.get_current_max_cameras()
+        return self.max_cam
+
+    @property
+    def current_max_context_views(self) -> int:
+        if hasattr(self.view_sampler, "get_current_max_context_views"):
+            return self.view_sampler.get_current_max_context_views()
+        return self.max_context
+
+    @property
+    def current_max_target_views(self) -> int:
+        if hasattr(self.view_sampler, "get_current_max_target_views"):
+            return self.view_sampler.get_current_max_target_views()
+        return self.max_target
+
+    def _sample_num_cameras(self) -> int:
+        if self.max_cam <= 1:
+            return 1
+        eligible_cams = [
+            cam for cam in range(self.min_cam, self.current_max_cameras + 1)
+            if cam not in self.excluded_cameras
+        ]
+        return self.rng.choice(eligible_cams) if eligible_cams else self.min_cam
+
+    def _sample_view_count(self, min_views: int, max_views: int, scale: float) -> int:
+        """Scales the max views and samples a random view count."""
+        scaled_max = max(min_views, round(max_views * scale))
+        return self.rng.randint(min_views, scaled_max)
+
+    def __iter__(self):
+        """
+        Yield batches of index tuples. Total frames per batch are kept
+        roughly constant by scaling view counts inversely to camera counts.
+        """
+        it = iter(self._dist_sampler)
+        for batch_indices in iter(lambda: list(itertools.islice(it, self.batch_size)), []):
+            num_cameras = self._sample_num_cameras()
+
+            # Scale view counts inversely so total frames stay relatively stable.
+            view_scale = max(1, self.max_cam) / num_cameras
+
+            num_context = self._sample_view_count(self.min_context, self.current_max_context_views, view_scale)
+            num_target = self._sample_view_count(self.min_target, self.current_max_target_views, view_scale)
+
+            yield [(idx, num_context, num_target, num_cameras) for idx in batch_indices]
+
+    def __len__(self) -> int:
+        return len(self._dist_sampler)
 
 
 class DataModule(LightningDataModule):
-    dataset_cfgs: list[DatasetCfgWrapper]
-    data_loader_cfg: DataLoaderCfg
-    step_tracker: StepTracker | None
-    dataset_shim: DatasetShim
-    global_rank: int
-    
     def __init__(
         self,
         dataset_cfgs: list[DatasetCfgWrapper],
         data_loader_cfg: DataLoaderCfg,
         step_tracker: StepTracker | None = None,
-        dataset_shim: DatasetShim = lambda dataset, _: dataset,
         global_rank: int = 0,
     ) -> None:
         super().__init__()
         self.dataset_cfgs = dataset_cfgs
         self.data_loader_cfg = data_loader_cfg
         self.step_tracker = step_tracker
-        self.dataset_shim = dataset_shim
         self.global_rank = global_rank
-        self.train_generator = self.init_generator(self.data_loader_cfg.train)
-        self.val_generator = self.init_generator(self.data_loader_cfg.val)
-        self.test_generator = self.init_generator(self.data_loader_cfg.test)
-        
-    def get_persistent(self, loader_cfg: DataLoaderStageCfg) -> bool | None:
-        return None if loader_cfg.num_workers == 0 else loader_cfg.persistent_workers
+        self.train_generator = self._init_generator(data_loader_cfg.train)
+        self.val_generator = self._init_generator(data_loader_cfg.val)
 
-    def init_generator(self, loader_cfg: DataLoaderStageCfg) -> Generator | None:
-        if loader_cfg.seed is None:
+    def _init_generator(self, cfg: DataLoaderStageCfg) -> Generator | None:
+        if cfg.seed is None:
             return None
-        
-        generator = Generator()
-        generator.manual_seed(loader_cfg.seed + self.global_rank)
-        return generator
-        
-    def train_dataloader(self):
-        dataset, datasets_ls = get_dataset(self.dataset_cfgs, "train", self.step_tracker, self.dataset_shim,
-                                           generator=self.train_generator,
-                                           batch_size=self.data_loader_cfg.train.batch_size)
-        world_size = get_world_size()
-        rank = get_rank()
-        prob_ls = [dataset.cfg.sampling_weight for dataset in datasets_ls]
-        # we assume all the dataset share the same num_context_views
-        
-        if len(datasets_ls) > 1:
-            prob = prob_ls
-            context_num_views = [dataset.cfg.view_sampler.num_context_views for dataset in datasets_ls]
-        else:
-            prob = None
-            dataset_key = next(iter(get_cfg()["dataset"]))
-            dataset_cfg = get_cfg()["dataset"][dataset_key]
-            vs_cfg = dataset_cfg['view_sampler']
-            context_num_views = vs_cfg.get('max_context_views', vs_cfg.get('num_context_views'))
-            
-        sampler = HomogeneousBatchSampler(datasets_ls,
-                                    batch_size=self.data_loader_cfg.train.batch_size,
-                                    num_context_views=context_num_views, 
-                                    world_size=world_size, 
-                                    rank=rank,
-                                    prob=prob,
-                                    generator=self.train_generator)
-        sampler.set_epoch(0)
-        self.train_loader = DataLoader(
+        g = Generator()
+        g.manual_seed(cfg.seed + self.global_rank) # each gpu gets a different random augmentation
+        return g
+
+    def _make_loader(self, stage: str, cfg: DataLoaderStageCfg, generator: Generator | None) -> DataLoader:
+        dataset = get_dataset(
+            self.dataset_cfgs, stage, self.step_tracker,
+            generator=generator,
+        )
+        sampler = DataSampler(dataset, batch_size=cfg.batch_size, world_size=get_world_size(), rank=get_rank())
+        loader = DataLoader(
             dataset,
             batch_sampler=sampler,
-            num_workers=self.data_loader_cfg.train.num_workers,
-            generator=self.train_generator,
+            num_workers=cfg.num_workers,
+            generator=generator,
             worker_init_fn=worker_init_fn,
-            collate_fn=custom_collate_fn,
-            persistent_workers=self.get_persistent(self.data_loader_cfg.train),
+            collate_fn=collate_fn,
+            persistent_workers=cfg.persistent_workers if cfg.num_workers > 0 else False,
         )
-        # Set epoch for train and validation loaders (if applicable)
-        if hasattr(self.train_loader, "dataset") and hasattr(self.train_loader.dataset, "set_epoch"):
-            print("Training: Set Epoch in DataModule")
-            self.train_loader.dataset.set_epoch(0)
-        if hasattr(self.train_loader, "sampler") and hasattr(self.train_loader.sampler, "set_epoch"):
-            print("Training: Set Epoch in DataModule")
-            self.train_loader.sampler.set_epoch(0)
-        
+        sampler.set_epoch(0)
+        return loader
+
+    def train_dataloader(self) -> DataLoader:
+        self.train_loader = self._make_loader("train", self.data_loader_cfg.train, self.train_generator)
         return self.train_loader
 
-    def val_dataloader(self):
-        dataset, datasets_ls = get_dataset(self.dataset_cfgs, "val", self.step_tracker,
-                                           self.dataset_shim, generator=self.val_generator,
-                                           batch_size=self.data_loader_cfg.val.batch_size)
-        world_size = get_world_size()
-        rank = get_rank()
-        # here, we random select one dataset for val
-        dataset_key = next(iter(get_cfg()["dataset"]))
-        dataset_cfg = get_cfg()["dataset"][dataset_key]
-        if len(datasets_ls) > 1:
-             prob = [0.5] * len(datasets_ls)
-        else:
-            prob = None
-        val_vs_cfg = dataset_cfg['view_sampler']
-        val_context_num_views = val_vs_cfg.get('max_context_views', val_vs_cfg.get('num_context_views'))
-        sampler = HomogeneousBatchSampler(datasets_ls,
-                                    batch_size=self.data_loader_cfg.val.batch_size,
-                                    num_context_views=val_context_num_views,
-                                    world_size=world_size,
-                                    rank=rank,
-                                    prob=prob,
-                                    generator=self.val_generator)
-        sampler.set_epoch(0)
-        self.val_loader = DataLoader(
-            dataset,
-            batch_sampler=sampler,
-            num_workers=self.data_loader_cfg.val.num_workers,
-            generator=self.val_generator,
-            worker_init_fn=worker_init_fn,
-            collate_fn=custom_collate_fn,
-            persistent_workers=self.get_persistent(self.data_loader_cfg.val),
-        )
-        if hasattr(self.val_loader, "dataset") and hasattr(self.val_loader.dataset, "set_epoch"):
-            print("Validation: Set Epoch in DataModule")
-            self.val_loader.dataset.set_epoch(0)
-        if hasattr(self.val_loader, "sampler") and hasattr(self.val_loader.sampler, "set_epoch"):
-            print("Validation: Set Epoch in DataModule")
-            self.val_loader.sampler.set_epoch(0)
+    def val_dataloader(self) -> DataLoader:
+        self.val_loader = self._make_loader("val", self.data_loader_cfg.val, self.val_generator)
         return self.val_loader
-
-    def test_dataloader(self):
-        dataset = get_dataset(self.dataset_cfgs, "test", self.step_tracker, self.dataset_shim, generator=self.test_generator, batch_size=self.data_loader_cfg.test.batch_size)
-        data_loader = DataLoader(
-            dataset,
-            self.data_loader_cfg.test.batch_size,
-            num_workers=self.data_loader_cfg.test.num_workers,
-            generator=self.test_generator,
-            worker_init_fn=worker_init_fn,
-            persistent_workers=self.get_persistent(self.data_loader_cfg.test),
-        )
-            
-        return data_loader

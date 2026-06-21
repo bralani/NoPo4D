@@ -38,7 +38,7 @@ Use `--universities georgiatech cmu unc sfu ...` to restrict the download to spe
 
 `preprocess_exo.py` reads camera intrinsics/extrinsics, applies fisheye undistortion, and writes one HDF5 file per sequence containing all camera views.
 
-**Warning: processing all sequences produces ~70 TB of data. Edit `scripts/dataset/sequences_train.txt` and `scripts/dataset/sequences_test.txt` to include only the sequences you need before running.**
+**Warning: processing all sequences produces ~70 TB of data. Edit `scripts/dataset/sequences_train.txt` and `scripts/dataset/sequences_val.txt` to include only the sequences you need before running.**
 
 ### 0. Install preprocessing dependencies
 
@@ -50,7 +50,7 @@ pip install opencv-python h5py tqdm
 
 ### 1. Define your splits
 
-Fill in `scripts/dataset/sequences_train.txt` and `scripts/dataset/sequences_test.txt` with one sequence name per line (sequence names correspond to the `take_name` field in `takes.json`):
+Fill in `scripts/dataset/sequences_train.txt` and `scripts/dataset/sequences_val.txt` with one sequence name per line (sequence names correspond to the `take_name` field in `takes.json`):
 
 ```
 cmu_bike01_2
@@ -68,19 +68,19 @@ export OUTPUT_DIR=/your/dataset_processed/path
 # Train split
 bash scripts/dataset/preprocess_exo.sh scripts/dataset/sequences_train.txt <num_workers>
 
-# Test split
-bash scripts/dataset/preprocess_exo.sh scripts/dataset/sequences_test.txt <num_workers>
+# Val split
+bash scripts/dataset/preprocess_exo.sh scripts/dataset/sequences_val.txt <num_workers>
 ```
 
 `num_workers` controls how many sequences are processed in parallel and defaults to 1. Set it to the number of available CPU cores to speed up preprocessing significantly.
 
 ### 3. Copy the split files into the processed dataset root
 
-The dataloader looks for `sequences_train.txt` and `sequences_test.txt` directly inside the processed dataset root:
+The dataloader looks for `sequences_train.txt` and `sequences_val.txt` directly inside the processed dataset root:
 
 ```bash
 cp scripts/dataset/sequences_train.txt $OUTPUT_DIR/sequences_train.txt
-cp scripts/dataset/sequences_test.txt  $OUTPUT_DIR/sequences_test.txt
+cp scripts/dataset/sequences_val.txt  $OUTPUT_DIR/sequences_val.txt
 ```
 
 ### Output structure
@@ -88,7 +88,7 @@ cp scripts/dataset/sequences_test.txt  $OUTPUT_DIR/sequences_test.txt
 ```
 <output_dir>/
 ├── sequences_train.txt
-├── sequences_test.txt
+├── sequences_val.txt
 └── <sequence_name>/
     └── <sequence_name>.h5
 ```
@@ -102,4 +102,4 @@ Each HDF5 file contains:
 | `extrinsics` | `[N, 4, 4]` | float64 | Camera-to-world poses |
 | `camera_ids` | `[N]` | str | Camera identifiers (e.g. `cam01`) |
 
-The dataloader selects the correct split file at runtime based on the `data_stage` field (`train` or `test`) passed through the experiment config.
+The dataloader selects the correct split file at runtime based on the `data_stage` field (`train` or `val`) passed through the experiment config.

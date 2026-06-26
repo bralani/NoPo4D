@@ -37,6 +37,7 @@ training = [
     "torchaudio",
     "matplotlib",
     "scipy",
+    "dotdict",
     "tensorboard",
 ]
 

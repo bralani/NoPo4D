@@ -23,7 +23,7 @@ This work presents **NoPo4D**, the first feed-forward system that jointly addres
 
 - [x] Release inference code
 - [x] Release pretrained checkpoint
-- [ ] Release training code
+- [x] Release training code
 
 ## Installation
 

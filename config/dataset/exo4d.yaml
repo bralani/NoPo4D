@@ -1,0 +1,10 @@
+defaults:
+  - base_dataset
+  - view_sampler: bounded_video
+
+name: exo4d
+root: /your/dataset_processed/path # preprocessed dataset path
+
+input_image_shape: [448, 448]
+max_fov: 120.0
+intr_augment: true

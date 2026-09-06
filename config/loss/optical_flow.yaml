@@ -1,0 +1,25 @@
+optical_flow:
+  weight: 0.02
+  loss_type: flow  # "flow": supervise du/dv directly; "rendering": render Gaussian flow
+  flow_threshold: 2.0  # Ignore flow vectors smaller than this (pixels)
+  warmup_steps: 0  # Steps before enabling this loss
+  max_flow: 150.0  # Clamp extreme flow magnitudes
+
+  smooth_l1_beta: 5.0
+
+  # Motion weighting
+  motion_weight: 1000.0  # Extra weight multiplier for pixels with flow > flow_threshold
+  only_moving_pixels: true  # If true, compute loss only on pixels with flow > flow_threshold (mean over valid pixels only)
+
+  # Occlusion masking
+  occlusion_aware: true          # Forward-backward consistency occlusion masking
+  occlusion_threshold: 30.0        # Cycle error threshold in pixels
+
+  # Sparse velocity regularization
+  weight_sparse_velocities: 0.1  # L1 mean of fwd+bwd velocity norms (encourages sparsity)
+
+  # Pair subsampling
+  max_pairs: 8  # Max individual pairs per step (0 = all); 4 = 2 fwd/bwd groups
+
+  raft_pretrained: "MemorySlices/Tartan-C-T-TSKH-spring540x960-M"
+

@@ -1,0 +1,5 @@
+distill:
+  delta: 1.0
+  weight_pose: 1.0
+  weight_depth: 0.1
+  weight_normal: 0.1

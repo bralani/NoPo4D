@@ -1,0 +1,4 @@
+opacity:
+  weight: 0.001
+  type: exp
+  sh_weight: 0.01
